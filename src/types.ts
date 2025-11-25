@@ -1,7 +1,7 @@
 export interface SegmentClientConfig {
-  apiEndpoint: string;
-  apiKey?: string;
-  timeout?: number;
+  tableName: string;
+  region?: string;
+  endpoint?: string;
 }
 
 export interface SegmentMetadata {
@@ -11,11 +11,12 @@ export interface SegmentMetadata {
   updatedAt: number;
   status: 'ready' | 'updating' | 'failed';
   stats?: {
-    added: number;
-    removed: number;
+    added?: number;
+    removed?: number;
     durationMs: number;
     bigQueryBytes: number;
   };
+  lastError?: string;
 }
 
 export interface MembershipResult {
@@ -32,11 +33,7 @@ export interface ExportResult {
 }
 
 export class SegmentError extends Error {
-  constructor(
-    message: string,
-    public statusCode: number,
-    public details?: string
-  ) {
+  constructor(message: string) {
     super(message);
     this.name = 'SegmentError';
   }

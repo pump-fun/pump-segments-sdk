@@ -1,3 +1,27 @@
+import murmur from 'imurmurhash';
+
+/**
+ * Compute sample bucket (same algorithm as Lambda)
+ */
+export function computeSampleBucket(
+  userId: string,
+  segmentId: string,
+  salt: string
+): number {
+  const hash = murmur(`${userId}#${segmentId}#${salt}`).result() >>> 0;
+  return hash % 10000;
+}
+
+/**
+ * Check if a bucket is in sample
+ */
+export function isInSample(bucket: number, percentage: number): boolean {
+  if (percentage <= 0 || percentage > 1) {
+    throw new Error('Percentage must be between 0 and 1');
+  }
+  return bucket < Math.floor(percentage * 10000);
+}
+
 /**
  * Format duration in human-readable format
  */
@@ -17,15 +41,4 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024 * 1024)
     return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
-}
-
-/**
- * Chunk array into batches
- */
-export function chunk<T>(array: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < array.length; i += size) {
-    chunks.push(array.slice(i, i + size));
-  }
-  return chunks;
 }

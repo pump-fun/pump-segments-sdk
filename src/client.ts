@@ -1,4 +1,10 @@
-
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  QueryCommand,
+  QueryCommandInput,
+} from '@aws-sdk/lib-dynamodb';
 import type {
   SegmentClientConfig,
   SegmentMetadata,
@@ -8,13 +14,17 @@ import type {
 import { SegmentError } from './types';
 
 export class SegmentClient {
-  private config: SegmentClientConfig;
+  private ddb: DynamoDBDocumentClient;
+  private tableName: string;
 
   constructor(config: SegmentClientConfig) {
-    this.config = {
-      timeout: 30000,
-      ...config,
-    };
+    const client = new DynamoDBClient({
+      region: config.region || process.env.AWS_REGION || 'us-east-1',
+      ...(config.endpoint && { endpoint: config.endpoint }),
+    });
+
+    this.ddb = DynamoDBDocumentClient.from(client);
+    this.tableName = config.tableName;
   }
 
   /**
@@ -32,16 +42,76 @@ export class SegmentClient {
     segmentId: string,
     userId: string
   ): Promise<MembershipResult> {
-    const url = this.buildUrl(`/users/${userId}/segments/${segmentId}`);
-    return this.fetch<MembershipResult>(url);
+    try {
+      // First, get current version from metadata
+      const meta = await this.getMetadata(segmentId);
+      const versionId = meta.versionId;
+
+      // Check if user exists in this version
+      const result = await this.ddb.send(
+        new GetCommand({
+          TableName: this.tableName,
+          Key: {
+            PK: `SEGMENT#${segmentId}#V#${versionId}`,
+            SK: `USER#${userId}`,
+          },
+        })
+      );
+
+      if (!result.Item) {
+        return {
+          inSegment: false,
+          versionId,
+        };
+      }
+
+      return {
+        inSegment: true,
+        versionId,
+        sampleBucket: result.Item.sampleBucket,
+        joinedAt: result.Item.joinedAt,
+      };
+    } catch (error) {
+      throw new SegmentError(
+        `Failed to check membership: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   /**
    * Get segment metadata
    */
   async getMetadata(segmentId: string): Promise<SegmentMetadata> {
-    const url = this.buildUrl(`/segments/${segmentId}/metadata`);
-    return this.fetch<SegmentMetadata>(url);
+    try {
+      const result = await this.ddb.send(
+        new GetCommand({
+          TableName: this.tableName,
+          Key: {
+            PK: `SEGMENT#${segmentId}#META`,
+            SK: 'METADATA',
+          },
+        })
+      );
+
+      if (!result.Item) {
+        throw new SegmentError(`Segment not found: ${segmentId}`);
+      }
+
+      return {
+        segmentId,
+        versionId: result.Item.currentVersionId || '0',
+        memberCount: result.Item.memberCount || 0,
+        updatedAt: result.Item.lastUpdatedAt || 0,
+        status: result.Item.status || 'ready',
+        stats: result.Item.stats,
+        lastError: result.Item.lastError,
+      };
+    } catch (error) {
+      if (error instanceof SegmentError) throw error;
+      throw new SegmentError(
+        `Failed to get metadata: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   /**
@@ -53,15 +123,61 @@ export class SegmentClient {
       cursor?: string;
       limit?: number;
       sample?: number; // 0-1 (e.g., 0.1 = 10%)
+      versionId?: string;
     }
   ): Promise<ExportResult> {
-    const url = this.buildUrl(`/segments/${segmentId}/users`, {
-      cursor: options?.cursor,
-      limit: options?.limit,
-      p: options?.sample,
-    });
+    try {
+      // Get version (either specified or current)
+      const versionId = options?.versionId || (await this.getMetadata(segmentId)).versionId;
+      const limit = options?.limit || 1000;
 
-    return this.fetch<ExportResult>(url);
+      // Parse cursor if provided
+      const exclusiveStartKey = options?.cursor
+        ? JSON.parse(Buffer.from(options.cursor, 'base64').toString('utf-8'))
+        : undefined;
+
+      // Query all users in this version
+      const queryParams: QueryCommandInput = {
+        TableName: this.tableName,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: {
+          ':pk': `SEGMENT#${segmentId}#V#${versionId}`,
+        },
+        Limit: limit,
+        ExclusiveStartKey: exclusiveStartKey,
+      };
+
+      const result = await this.ddb.send(new QueryCommand(queryParams));
+
+      let users = (result.Items || []).map((item) => {
+        // Extract userId from SK: "USER#<userId>"
+        return item.SK.replace('USER#', '');
+      });
+
+      // Apply sampling filter if requested
+      if (options?.sample !== undefined) {
+        const threshold = Math.floor(options.sample * 10000);
+        users = users.filter((_, idx) => {
+          const item = result.Items![idx];
+          return item.sampleBucket < threshold;
+        });
+      }
+
+      // Encode next cursor
+      const nextCursor = result.LastEvaluatedKey
+        ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString('base64')
+        : undefined;
+
+      return {
+        users,
+        nextCursor,
+        versionId,
+      };
+    } catch (error) {
+      throw new SegmentError(
+        `Failed to export users: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   /**
@@ -79,68 +195,11 @@ export class SegmentClient {
         limit: batchSize,
       });
 
-      yield result.users;
-      cursor = result.nextCursor;
-    } while (cursor);
-  }
-
-  // Private methods
-
-  private buildUrl(path: string, params?: Record<string, any>): string {
-    const url = new URL(path, this.config.apiEndpoint);
-
-    if (params) {
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          url.searchParams.append(key, String(value));
-        }
-      });
-    }
-
-    return url.toString();
-  }
-
-  private async fetch<T>(url: string, options: RequestInit = {}): Promise<T> {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-      ...(this.config.apiKey && {
-        Authorization: `Bearer ${this.config.apiKey}`,
-      }),
-      ...options.headers,
-    };
-
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      this.config.timeout
-    );
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers,
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new SegmentError(
-          `API Error: ${response.status} ${response.statusText}`,
-          response.status,
-          await response.text()
-        );
+      if (result.users.length > 0) {
+        yield result.users;
       }
 
-      return response.json();
-    } catch (error) {
-      if (error instanceof SegmentError) throw error;
-
-      throw new SegmentError(
-        error instanceof Error ? error.message : 'Unknown error',
-        0,
-        String(error)
-      );
-    } finally {
-      clearTimeout(timeout);
-    }
+      cursor = result.nextCursor;
+    } while (cursor);
   }
 }
