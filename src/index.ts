@@ -1,3 +1,6 @@
+import { SegmentClient } from './client';
+import { Segment } from './segment';
+
 export { SegmentClient } from './client';
 export { Segment } from './segment';
 export { SegmentError } from './types';
