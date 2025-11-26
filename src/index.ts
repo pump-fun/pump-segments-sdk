@@ -24,3 +24,5 @@ export type {
 export function segment(client: SegmentClient, segmentId: string): Segment {
   return new Segment(client, segmentId);
 }
+
+export { SEGMENTS, getSegmentById } from './segments/definitions';
