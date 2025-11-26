@@ -52,6 +52,19 @@ export const SEGMENTS: SegmentDefinition[] = [
     WHERE total_volume >= 1000
   `,
   },
+  {
+    id: "mobile-active-yesterday",
+    name: "Mobile Users Active Yesterday",
+    scheduleMinutes: 1440,
+    sql: `
+    SELECT DISTINCT user_id
+    FROM \`pump-data-production.analytics.daily_user_activity\`  
+    WHERE metrics_date = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+      AND user_id NOT LIKE 'anon_%'
+      AND user_id IS NOT NULL
+      AND was_on_mobile = TRUE
+  `,
+  },
 ];
 
 export const getSegmentById = (id: string): SegmentDefinition | undefined =>
