@@ -1,10 +1,11 @@
 import type { SegmentMetadata, ExportResult } from './types';
 import { SegmentClient } from './client';
+import { SegmentId } from './segments/definitions';
 
 export class Segment {
   constructor(
     private client: SegmentClient,
-    public readonly id: string
+    public readonly id: SegmentId
   ) {}
 
   /**
