@@ -12,6 +12,8 @@ import type {
   ExportResult,
 } from './types';
 import { SegmentError } from './types';
+import { SegmentId } from './segments/definitions';
+
 
 export class SegmentClient {
   private ddb: DynamoDBDocumentClient;
@@ -30,7 +32,7 @@ export class SegmentClient {
   /**
    * Check if a user is in a segment
    */
-  async isMember(segmentId: string, userId: string): Promise<boolean> {
+  async isMember(segmentId: SegmentId, userId: string): Promise<boolean> {
     const result = await this.getMembership(segmentId, userId);
     return result.inSegment;
   }
@@ -39,7 +41,7 @@ export class SegmentClient {
    * Get detailed membership information
    */
   async getMembership(
-    segmentId: string,
+    segmentId: SegmentId,
     userId: string
   ): Promise<MembershipResult> {
     try {
@@ -81,7 +83,7 @@ export class SegmentClient {
   /**
    * Get segment metadata
    */
-  async getMetadata(segmentId: string): Promise<SegmentMetadata> {
+  async getMetadata(segmentId: SegmentId): Promise<SegmentMetadata> {
     try {
       const result = await this.ddb.send(
         new GetCommand({
@@ -118,7 +120,7 @@ export class SegmentClient {
    * Export users from a segment (paginated)
    */
   async exportUsers(
-    segmentId: string,
+    segmentId: SegmentId,
     options?: {
       cursor?: string;
       limit?: number;
@@ -184,7 +186,7 @@ export class SegmentClient {
    * Stream all users from a segment
    */
   async *streamUsers(
-    segmentId: string,
+    segmentId: SegmentId,
     batchSize: number = 1000
   ): AsyncIterableIterator<string[]> {
     let cursor: string | undefined;

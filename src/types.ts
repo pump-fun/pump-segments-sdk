@@ -1,3 +1,5 @@
+import { SegmentId } from "./segments/definitions";
+
 export interface SegmentClientConfig {
   tableName: string;
   region?: string;
@@ -5,7 +7,7 @@ export interface SegmentClientConfig {
 }
 
 export interface SegmentMetadata {
-  segmentId: string;
+  segmentId: SegmentId;
   versionId: string;
   memberCount: number;
   updatedAt: number;
