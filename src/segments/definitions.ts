@@ -29,8 +29,30 @@ export const SEGMENTS: SegmentDefinition[] = [
       FROM notif_data
       WHERE notifications = 0
     `,
-  }
+  },
+  {
+    id: "mobile-high-volume-traders",
+    name: "Mobile High Volume Traders ($1k+ Weekly)",
+    scheduleMinutes: 1440,
+    sql: `
+    WITH trading_data AS (
+      SELECT 
+        user_id,
+        SUM(usd_volume) AS total_volume
+      FROM \`pump-data-production.analytics.daily_user_activity\`  
+      WHERE metrics_date < CURRENT_DATE()
+        AND metrics_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+        AND user_id NOT LIKE 'anon_%'
+        AND user_id IS NOT NULL
+        AND was_on_mobile = TRUE
+      GROUP BY 1
+    )
+    SELECT user_id
+    FROM trading_data
+    WHERE total_volume >= 1000
+  `,
+  },
 ];
 
 export const getSegmentById = (id: string): SegmentDefinition | undefined =>
-  SEGMENTS.find(s => s.id === id);
+  SEGMENTS.find((s) => s.id === id);
