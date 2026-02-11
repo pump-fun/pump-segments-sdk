@@ -21,8 +21,8 @@
     "author": "Pump.fun Engineering",
     "license": "MIT",
     "dependencies": {
-        "@aws-sdk/client-dynamodb": "^3.0.0",
-        "@aws-sdk/lib-dynamodb": "^3.0.0",
+        "@aws-sdk/client-dynamodb": "^3.987.0",
+        "@aws-sdk/lib-dynamodb": "^3.987.0",
         "imurmurhash": "^0.1.4"
     },
     "devDependencies": {
